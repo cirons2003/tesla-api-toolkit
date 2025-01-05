@@ -1,0 +1,18 @@
+{
+    "extends": "eslint:recommended",
+    "rules": {
+        "no-console": "warn",
+        "semi": ["error", "always"],
+        "quotes": ["error", "single"],
+        "max-len": [
+            "error",
+            {
+                "code": 80, // Maximum number of characters per line
+                "ignoreUrls": true, // Ignore long URLs in code
+                "ignoreStrings": true, // Ignore long strings
+                "ignoreTemplateLiterals": true, // Ignore long template literals
+                "ignoreComments": false // Include comments in max-length check
+            }
+        ]
+    }
+}
