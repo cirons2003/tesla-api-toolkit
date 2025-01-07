@@ -1,4 +1,4 @@
-import PublicKey from '../../TeslaClient/Keys/PublicKey';
+import PublicKey from '../../VehicleCache/Keys/PublicKey';
 import {
     expectedPublicUncompressedHexClient,
     expectedPublicUncompressedHexVehicle,

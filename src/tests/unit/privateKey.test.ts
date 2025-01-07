@@ -1,4 +1,4 @@
-import PrivateKey from '../../TeslaClient/Keys/PrivateKey';
+import PrivateKey from '../../VehicleCache/Keys/PrivateKey';
 import {
     testPemPrivateKeyClient,
     testPemPrivateKeyVehicle,

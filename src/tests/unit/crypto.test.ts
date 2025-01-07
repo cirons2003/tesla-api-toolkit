@@ -1,12 +1,12 @@
-import PrivateKey from '../../TeslaClient/Keys/PrivateKey';
-import PublicKey from '../../TeslaClient/Keys/PublicKey';
-import Crypto from '../../TeslaClient/Vehicle/objects/Crypto';
-import Metadata from '../../TeslaClient/Vehicle/objects/Metadata';
-import SessionInfo from '../../TeslaClient/Vehicle/objects/SessionInfo';
+import PrivateKey from '../../VehicleCache/Keys/PrivateKey';
+import PublicKey from '../../VehicleCache/Keys/PublicKey';
+import Crypto from '../../VehicleCache/Vehicle/objects/Crypto';
+import Metadata from '../../VehicleCache/Vehicle/objects/Metadata';
+import SessionInfo from '../../VehicleCache/Vehicle/objects/SessionInfo';
 import {
     SignatureType,
     Tag,
-} from '../../TeslaClient/Vehicle/protobuf/outputs/signatures';
+} from '../../VehicleCache/Vehicle/protobuf/outputs/signatures';
 import {
     expectedSharedHex,
     testPemPrivateKeyClient,

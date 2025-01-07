@@ -7,6 +7,9 @@ import {
 } from 'crypto';
 import PublicKey from '../../Keys/PublicKey';
 import PrivateKey from '../../Keys/PrivateKey';
+import SessionInfo from './SessionInfo';
+import Metadata from './Metadata';
+import { SignatureType, Tag } from '../protobuf/outputs/signatures';
 
 export class CryptoError extends Error {
     constructor(message: string) {
@@ -78,6 +81,37 @@ class Crypto {
         const authTag = cipher.getAuthTag();
 
         return { cipherText, authTag };
+    }
+
+    /* Validates Session Info Tag */
+    static isHandshakeResponseValid(
+        sessionInfo: SessionInfo,
+        sessionInfoTag: Buffer,
+        uuid: Buffer,
+        vin: string,
+    ): boolean {
+        const sharedKey = sessionInfo.getSharedKey();
+
+        // Check HMAC-SHA256(K, "session info")
+        const sessionInfoKey = Crypto.deriveHMACKey(sharedKey, 'session info');
+
+        // Encode metadata
+        const metadata = new Metadata();
+        metadata.addUInt8(
+            Tag.TAG_SIGNATURE_TYPE,
+            SignatureType.SIGNATURE_TYPE_HMAC,
+        );
+        metadata.addString(Tag.TAG_PERSONALIZATION, vin);
+        metadata.addHexString(Tag.TAG_CHALLENGE, uuid.toString('hex'));
+
+        const hmacTag = Crypto.getHMACTag(
+            metadata.toBytes(),
+            sessionInfo.getSessionInfoBytes(),
+            sessionInfoKey,
+        );
+
+        // Compare with response's tag
+        return Crypto.hmacTagsEqual(hmacTag, sessionInfoTag);
     }
 }
 

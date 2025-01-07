@@ -2,11 +2,11 @@ import {
     MessageFaultE,
     MessageStatus,
     RoutableMessage,
-} from '../../TeslaClient/Vehicle/protobuf/outputs/universal_message';
+} from '../../VehicleCache/Vehicle/protobuf/outputs/universal_message';
 import {
     asyncErrorHandler,
     exponentialBackoff,
-} from '../../TeslaClient/Vehicle/utils/errorHandling';
+} from '../../VehicleCache/Vehicle/utils/errorHandling';
 
 describe('Vehicle Error Handling Utilities', () => {
     it('Should implement exponential backoff', () => {

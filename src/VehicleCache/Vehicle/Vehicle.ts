@@ -1,11 +1,15 @@
-import { ClientContext } from '../TeslaClient';
+import { ClientContext } from '../VehicleCache';
 import SessionInfo from './objects/SessionInfo';
 import axios from 'axios';
 import { Domain, RoutableMessage } from './protobuf/outputs/universal_message';
 import { SignatureType, Tag } from './protobuf/outputs/signatures';
 import { Action } from './protobuf/outputs/car_server';
 import VehicleCommand from './objects/VehicleCommand';
-import { asyncErrorHandler, handleVehicleError } from './utils/errorHandling';
+import {
+    asyncErrorHandler,
+    handleVehicleError,
+    VehicleError,
+} from './utils/errorHandling';
 import HandshakeRequest from './objects/HandshakeRequest';
 import Metadata from './objects/Metadata';
 import Crypto from './objects/Crypto';
@@ -38,6 +42,8 @@ class Vehicle {
             this.context.privateKey,
         );
 
+        // Maybe validate tag? Probably not needed...
+
         if (domain === Domain.DOMAIN_INFOTAINMENT) {
             this.infotainmentSessionInfo = newSessionInfo;
         } else {
@@ -46,24 +52,17 @@ class Vehicle {
     }
 
     /* Reduces boilerplate */
-    #getDomainSessionInfo(
-        domain: Domain.DOMAIN_INFOTAINMENT | Domain.DOMAIN_VEHICLE_SECURITY,
-    ) {
+    #getDomainSession(domain: Domain) {
         if (domain === Domain.DOMAIN_INFOTAINMENT) {
-            return this.infotainmentSessionInfo;
+            return {
+                hasSession: this.hasInfotainmentSession,
+                sessionInfo: this.infotainmentSessionInfo,
+            };
         } else {
-            return this.vehicleSecuritySessionInfo;
-        }
-    }
-
-    /* Reduces boilerplate */
-    #domainHasSession(
-        domain: Domain.DOMAIN_INFOTAINMENT | Domain.DOMAIN_VEHICLE_SECURITY,
-    ) {
-        if (domain === Domain.DOMAIN_INFOTAINMENT) {
-            return this.hasInfotainmentSession;
-        } else {
-            return this.hasVehicleSecuritySession;
+            return {
+                hasSession: this.hasVehicleSecuritySession,
+                sessionInfo: this.vehicleSecuritySessionInfo,
+            };
         }
     }
 
@@ -71,12 +70,17 @@ class Vehicle {
      ** Conducts a handshake with retries.
      ** Validates session info tag.
      ** If tag matches, updates session info.
+     **
+     ** Returns either a VehicleError or a RoutableMessage.
+     ** If a session already exists returns undefined instead of RoutableMessage.
+     **
+     ** Response in format [result, error]
      */
     async #startSession(
         domain: Domain.DOMAIN_INFOTAINMENT | Domain.DOMAIN_VEHICLE_SECURITY,
-    ): Promise<void> {
-        if (this.#domainHasSession(domain)) {
-            return;
+    ): Promise<[null, VehicleError] | [RoutableMessage | undefined, null]> {
+        if (this.#getDomainSession(domain).hasSession) {
+            return [undefined, null];
         }
 
         const uuidObject = { uuid: undefined };
@@ -84,6 +88,7 @@ class Vehicle {
         const handshakeCallback = async () =>
             await this.#issueHandshake(domain, uuidObject);
 
+        // Conduct handshake
         const [maybeMessage, vehicleError] = await asyncErrorHandler(
             handshakeCallback,
             this.context.maxRetries,
@@ -96,36 +101,51 @@ class Vehicle {
 
         const message = maybeMessage as RoutableMessage;
 
+        // Should never be undefined
         if (!uuidObject.uuid) {
-            throw new Error();
+            const error = new Error();
+            handleVehicleError(error);
+            return [null, error];
         }
 
+        // Should never be undefined since we already handled http & protocol errors
         const sessionInfoBytes = message.sessionInfo;
         if (!sessionInfoBytes) {
-            throw new Error();
+            const error = new Error();
+            handleVehicleError(error);
+            return [null, error];
         }
+
         const sessionInfo = new SessionInfo(
             Buffer.from(sessionInfoBytes),
             this.context.privateKey,
         );
 
+        // Should never be undefined since we already handled http & protocol errors
         const sessionInfoTagBytes = message.signatureData?.sessionInfoTag?.tag;
         if (!sessionInfoTagBytes) {
-            throw new Error();
+            const error = new Error();
+            handleVehicleError(error);
+            return [null, error];
         }
         const sessionInfoTag = Buffer.from(sessionInfoTagBytes);
 
-        const isValid = this.#isHandshakeResponseValid(
+        const isValid = Crypto.isHandshakeResponseValid(
             sessionInfo,
             sessionInfoTag,
             uuidObject.uuid,
+            this.vin,
         );
 
+        // This means signature was not correct. We can't verify the integrity of the response.
         if (!isValid) {
-            throw new Error();
+            const error = new Error();
+            handleVehicleError(error);
+            return [null, error];
         }
 
         this.updateSessionInfo(Buffer.from(sessionInfoBytes), domain);
+        return [message, null];
     }
 
     /* Sends a handshake. Throws http errors */
@@ -142,50 +162,20 @@ class Vehicle {
         return await this.#send(handshakeRequest.toBase64());
     }
 
-    /* Validates Session Info Tag */
-    #isHandshakeResponseValid(
-        sessionInfo: SessionInfo,
-        sessionInfoTag: Buffer,
-        uuid: Buffer,
-    ): boolean {
-        const sharedKey = sessionInfo.getSharedKey();
-
-        // Check HMAC-SHA256(K, "session info")
-        const sessionInfoKey = Crypto.deriveHMACKey(sharedKey, 'session info');
-
-        // Encode metadata
-        const metadata = new Metadata();
-        metadata.addUInt8(
-            Tag.TAG_SIGNATURE_TYPE,
-            SignatureType.SIGNATURE_TYPE_HMAC,
-        );
-        metadata.addString(Tag.TAG_PERSONALIZATION, this.vin);
-        metadata.addHexString(Tag.TAG_CHALLENGE, uuid.toString('hex'));
-
-        const hmacTag = Crypto.getHMACTag(
-            metadata.toBytes(),
-            sessionInfo.getSessionInfoBytes(),
-            sessionInfoKey,
-        );
-
-        // Compare with response's tag
-        return Crypto.hmacTagsEqual(hmacTag, sessionInfoTag);
-    }
-
     /* Sends a vehicle command. Throws http errors. */
     async #issueCommand(
         action: Action,
         domain: Domain.DOMAIN_INFOTAINMENT | Domain.DOMAIN_VEHICLE_SECURITY,
         secondsToExpiration: number,
     ): Promise<RoutableMessage> {
-        this.#getDomainSessionInfo(domain).incrementCounter();
+        this.#getDomainSession(domain).sessionInfo.incrementCounter();
 
         const commandBytes = Buffer.from(Action.encode(action).finish());
         const vehicleCommand = new VehicleCommand(
             commandBytes,
             this.vin,
             this.context.publicKey,
-            this.#getDomainSessionInfo(domain),
+            this.#getDomainSession(domain).sessionInfo,
             domain,
             secondsToExpiration,
         );
@@ -201,10 +191,7 @@ class Vehicle {
      ** Throws Http Errors.
      */
     async #send(routableBase64: string): Promise<RoutableMessage> {
-        const access_token = await this.context.getAccessToken(
-            this.id,
-            'vehicle',
-        ); // client errors will propogate
+        const access_token = await this.context.getAccessToken(this.id); // client errors will propogate
 
         const config: RequestConfig = {
             method: 'POST',
@@ -222,12 +209,19 @@ class Vehicle {
         return RoutableMessage.decode(response.data.response);
     }
 
-    /* Honks Horn */
+    /**
+     * Honks the vehicle's horn. (Targets Infotainment domain).
+     * @param secondsToExpiration - Number of seconds until command should expire.
+     * @returns A RoutableMessage response from the vehicle.
+     */
     async honkHorn(secondsToExpiration: number): Promise<RoutableMessage> {
         const TARGET_DOMAIN = Domain.DOMAIN_INFOTAINMENT;
 
-        if (this.#domainHasSession(TARGET_DOMAIN)) {
-            this.#startSession(TARGET_DOMAIN);
+        if (!this.#getDomainSession(TARGET_DOMAIN).hasSession) {
+            const [_, error] = await this.#startSession(TARGET_DOMAIN);
+            if (!!error) {
+                throw error;
+            }
         }
 
         const callback = async () =>
@@ -247,6 +241,7 @@ class Vehicle {
 
         if (vehicleError !== null) {
             handleVehicleError(vehicleError);
+            throw vehicleError;
         }
 
         return message as RoutableMessage;

@@ -1,6 +1,6 @@
-import PrivateKey from '../../TeslaClient/Keys/PrivateKey';
-import SessionInfo from '../../TeslaClient/Vehicle/objects/SessionInfo';
-import Vehicle from '../../TeslaClient/Vehicle/Vehicle';
+import PrivateKey from '../../VehicleCache/Keys/PrivateKey';
+import SessionInfo from '../../VehicleCache/Vehicle/objects/SessionInfo';
+import Vehicle from '../../VehicleCache/Vehicle/Vehicle';
 
 export const testPemPrivateKeyClient = `-----BEGIN EC PRIVATE KEY-----
 MHcCAQEEICU4zcKal8GcHpmmN9bPT4yXDBGLVu3h5jI+bRYsSzDboAoGCCqGSM49

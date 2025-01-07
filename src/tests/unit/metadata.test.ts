@@ -1,8 +1,8 @@
 import {
     SignatureType,
     Tag,
-} from '../../TeslaClient/Vehicle/protobuf/outputs/signatures';
-import Metadata from '../../TeslaClient/Vehicle/objects/Metadata';
+} from '../../VehicleCache/Vehicle/protobuf/outputs/signatures';
+import Metadata from '../../VehicleCache/Vehicle/objects/Metadata';
 
 describe('Metadata', () => {
     it('Should properly encode ints', () => {

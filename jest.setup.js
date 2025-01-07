@@ -1,5 +1,5 @@
-const PrivateKey = require('./src/TeslaClient/Keys/PrivateKey').default;
-const PublicKey = require('./src/TeslaClient/Keys/PublicKey').default;
+const PrivateKey = require('./src/VehicleCache/Keys/PrivateKey').default;
+const PublicKey = require('./src/VehicleCache/Keys/PublicKey').default;
 
 const clientPrivateKey = new PrivateKey(`-----BEGIN EC PRIVATE KEY-----
 MHcCAQEEICU4zcKal8GcHpmmN9bPT4yXDBGLVu3h5jI+bRYsSzDboAoGCCqGSM49
