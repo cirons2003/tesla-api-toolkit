@@ -1,46 +1,40 @@
-import express from 'express';
-import path from 'path';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import extractToken from './token-manager/routes/extractToken/extractToken';
-import userRouter from './token-manager/routes/user';
-import { errorHandler } from './middleware/errorHandler';
+import { TeslaClient, VehicleError, PersonError } from 'tesla-api-toolkit';
 
-// load .env file
-dotenv.config();
-
-// configure redis
-/*const redis = require('redis');
-export const redisClient = redis.createClient({
-    url: process.env.REDIS_URL,
-});
-redisClient.on('error', (err: any) => console.error('Redis Client Error', err));
-
-// establish redis connection
-const initializeRedisConnection = async () => {
-    await redisClient.connect();
+// Initialize TeslaClient
+const privateKey = 'key1';
+const publicKey = 'key2';
+const getAccessToken = async (id: string, type: 'person' | 'vehicle') => {
+    // Custom logic to retrieve the access token
 };
-initializeRedisConnection();
-*/
-// initialize app and set up middleware
-const app = express();
-app.use(cors());
-app.use(express.json());
+const refreshAccessToken = async (id: string, type: 'person' | 'vehicle') => {
+    // Custom logic to refresh the access token
+};
 
-// host public key
-app.use(express.static(path.join(__dirname, '../public')));
+const tk = new TeslaClient({ privateKey, publicKey, getAccessToken, refreshAccessToken });
 
-// include middleware
+// Vehicle Cache maintains vehicle sessions
+const vehicleCache = tk.vehicleCache;
+const vin1 = 'something'
+const vehicle1 = vehicleCache.addVehicle('v1', vin1);
+vehicle1.honkHorn();
 
-// include routers
-app.use(extractToken);
-app.use('/user', userRouter);
+// Use a vehicle
+if (!vehicleCache.containsVehicle('v1')) {
+    vehicle1.addVehicle('v1', vin1);
+}
+const reusedVehicle1 = vehicleCache.getVehicle('v1');
+try {
+    reusedVehicle1.honkHorn();
+} catch (err: VehicleError) {
+    // err will contain documented error codes for proper handling
+    // err will also contain a description of the error
+}
 
-// error handling
-app.use(errorHandler);
-
-// run server
-const PORT = 3000;
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+// Work with a Person
+const me = tk.createPerson('myId'); // new Person object to issue commands
+try {
+    console.log('My info is: ', await me.getAccountInfo());
+} catch (err: PersonError) {
+    // err will contain documented error codes for proper handling
+    // err will also contain a description of the error
+}
