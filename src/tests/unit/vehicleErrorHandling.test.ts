@@ -6,7 +6,7 @@ import {
 import {
     asyncErrorHandler,
     exponentialBackoff,
-} from '../../VehicleCache/Vehicle/utils/errorHandling';
+} from '../../VehicleCache/Vehicle/VehicleError/utils';
 
 describe('Vehicle Error Handling Utilities', () => {
     it('Should implement exponential backoff', () => {

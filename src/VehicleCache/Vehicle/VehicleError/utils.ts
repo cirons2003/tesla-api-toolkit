@@ -3,35 +3,13 @@ import {
     MessageFaultE,
     RoutableMessage,
 } from '../protobuf/outputs/universal_message';
-
-const protocolErrorMessages = {
-    0: 'Request succeeded.',
-    1: 'Required vehicle subsystem is busy. Try again.',
-    2: 'Vehicle subsystem did not respond. Try again.',
-    3: 'Vehicle did not recognize the key used to authorize command. Make sure your key is paired with the vehicle.',
-    4: 'Key used to authorize command has been disabled.',
-    5: 'Command signature/MAC is incorrect. Use included session info to update session and try again.',
-    6: 'Command anti-replay counter has been used before. Use included session info to update session and try again.',
-    7: 'User is not authorized to execute command. This can be because of the role or because of vehicle state.',
-    8: 'Command was malformed or addressed to an unrecognized vehicle system. May indicate client error or older vehicle firmware.',
-    9: 'Unrecognized command. May indicate client error or unsupported vehicle firmware.',
-    10: 'Could not parse command. Indicates client error.',
-    11: 'Internal vehicle error. Try again. Most commonly encountered when the vehicle has not finished booting.',
-    12: 'Command sent to wrong VIN.',
-    13: 'Command was malformed or used a deprecated parameter.',
-    14: "Vehicle's keychain is full. You must delete a key before you can add another.",
-    15: 'Session ID mismatch. Use included session info to update session and try again.',
-    16: 'Initialization Value length is incorrect (AES-GCM must use 12-byte IVs). Indicates a client programming error.',
-    17: 'Command expired. Use included session info to determine if clocks have desynchronized and try again.',
-    18: 'Vehicle has not been provisioned with a VIN and may require service.',
-    19: 'Internal vehicle error.',
-    20: 'Vehicle rejected command because its expiration time was too far in the future. This is a security precaution.',
-    21: 'The vehicle owner has disabled Mobile access.',
-    22: 'The command was authorized with a Service key, but the vehicle has not been configured to permit remote service commands.',
-    23: 'The command requires proof of Tesla account credentials but was not sent over a channel that provides this proof. Resend the command using Fleet API.',
-    24: 'Client sent a request with a field that exceeds MTU',
-    25: "Client's request was received, but response size exceeded MTU",
-};
+import {
+    HttpError,
+    ProtocolError,
+    VehicleError,
+    VehicleErrorDetails,
+} from './VehicleError';
+import { VehicleErrorCode } from './constants';
 
 /*
  ** Takes in an async function, and calls it.
@@ -44,7 +22,9 @@ export const asyncErrorHandler = async (
     callback: () => Promise<RoutableMessage>,
     maxRetries: number,
     baseTimeout: number,
-): Promise<[RoutableMessage, null] | [null, VehicleError]> => {
+    vin: string,
+    id: string,
+): Promise<[RoutableMessage, null] | [null, Error]> => {
     let retryCount = 0;
     while (true) {
         const [response, error] = await asyncWrapper(callback());
@@ -52,15 +32,27 @@ export const asyncErrorHandler = async (
         if (!!error) {
             const shouldRetry = handleHTTPError(error);
             if (!!shouldRetry) {
-                retryCount += 1;
                 // max retry count exceeded
-                if (retryCount > maxRetries) {
-                    return [null, vehicleErrorFromHTTPError(error, true)];
+                if (retryCount >= maxRetries) {
+                    const details: VehicleErrorDetails = {
+                        vin,
+                        id,
+                        outOfRetries: true,
+                        retriesAttempted: retryCount,
+                    };
+                    return [null, vehicleErrorFromHTTPError(error, details)];
                 }
+                retryCount += 1;
                 await sleep(exponentialBackoff(retryCount, baseTimeout));
                 continue;
             } else {
-                return [null, vehicleErrorFromHTTPError(error)];
+                const details: VehicleErrorDetails = {
+                    vin,
+                    id,
+                    outOfRetries: false,
+                    retriesAttempted: retryCount,
+                };
+                return [null, vehicleErrorFromHTTPError(error, details)];
             }
         }
         const protocolErrorCode = getProtocolErrorCode(
@@ -74,21 +66,43 @@ export const asyncErrorHandler = async (
         // handle protocol errors
         const shouldRetry = handleProtocolError(protocolErrorCode);
         if (!!shouldRetry) {
-            retryCount += 1;
-            if (retryCount > maxRetries) {
+            if (retryCount >= maxRetries) {
+                const details: VehicleErrorDetails = {
+                    vin,
+                    id,
+                    outOfRetries: true,
+                    retriesAttempted: retryCount,
+                };
                 return [
                     null,
-                    vehicleErrorFromProtocolError(protocolErrorCode, true),
+                    vehicleErrorFromProtocolError(protocolErrorCode, details),
                 ];
             }
+            retryCount += 1;
             await sleep(exponentialBackoff(retryCount, baseTimeout));
             continue;
         } else {
+            const details: VehicleErrorDetails = {
+                vin,
+                id,
+                outOfRetries: false,
+                retriesAttempted: retryCount,
+            };
             return [
                 null,
-                vehicleErrorFromProtocolError(protocolErrorCode, false),
+                vehicleErrorFromProtocolError(protocolErrorCode, details),
             ];
         }
+    }
+};
+
+const asyncWrapper = async <T>(
+    promise: Promise<T>,
+): Promise<[T, null] | [null, Error]> => {
+    try {
+        return [await promise, null];
+    } catch (err) {
+        return [null, err];
     }
 };
 
@@ -102,16 +116,24 @@ export const exponentialBackoff = (retryCount: number, baseTimeout: number) => {
 
 const vehicleErrorFromProtocolError = (
     protocolErrorCode: number,
-    outOfRetries: boolean = false,
+    details: VehicleErrorDetails,
 ) => {
-    return protocolErrorCode as unknown as VehicleError;
+    return new ProtocolError(protocolErrorCode, details);
 };
 
 const vehicleErrorFromHTTPError = (
     err: Error,
-    outOfRetries: boolean = false,
+    details: VehicleErrorDetails,
 ) => {
-    return err as VehicleError;
+    if (err instanceof AxiosError) {
+        return new HttpError(err, details);
+    } else {
+        return new VehicleError(
+            'An Unexpected Error Occured',
+            VehicleErrorCode.INTERNAL_ERROR,
+            details,
+        );
+    }
 };
 
 /*
@@ -231,28 +253,6 @@ const getProtocolErrorCode = (code?: MessageFaultE): ProtocolErrorCode => {
     }
 
     return ProtocolErrorCode.UNKNOWN_ERROR;
-};
-
-export type VehicleErrorDetails = {};
-export class VehicleError extends Error {
-    details?: VehicleErrorDetails;
-
-    constructor(message: string, details?: VehicleErrorDetails) {
-        super(message);
-        this.details = details;
-
-        Object.setPrototypeOf(this, VehicleError.prototype);
-    }
-}
-
-const asyncWrapper = async <T>(
-    promise: Promise<T>,
-): Promise<[T, null] | [null, Error]> => {
-    try {
-        return [await promise, null];
-    } catch (err) {
-        return [null, err];
-    }
 };
 
 export const handleVehicleError = (vehicleError: VehicleError): never => {

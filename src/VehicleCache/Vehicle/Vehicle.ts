@@ -9,7 +9,7 @@ import {
     asyncErrorHandler,
     handleVehicleError,
     VehicleError,
-} from './utils/errorHandling';
+} from './VehicleError/utils';
 import HandshakeRequest from './objects/HandshakeRequest';
 import Metadata from './objects/Metadata';
 import Crypto from './objects/Crypto';
