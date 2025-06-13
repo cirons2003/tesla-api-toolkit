@@ -75,6 +75,6 @@ try {
 ## For Questions and Suggestions
 Contact Carson Irons at:
 - 714-402-6738  
-- ci7229@princeton.edu  
+- carsonirons@gmail.com
 
 
